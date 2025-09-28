@@ -7,12 +7,9 @@ function App() {
 
   return (
     <>
-       <div className="App">
-      <h1>Distributed File System</h1>
       <FileManager />
-    </div>
     </>
   )
 }
 
-export default App
+export default App;

@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Upload, File, Download, Trash2, AlertCircle, CheckCircle, Loader } from 'lucide-react';
+import React, { useState, useEffect } from "react";
+import {
+  Upload, File, Folder, Download, Trash2, CheckCircle, AlertCircle, X, HardDrive, Search
+} from "lucide-react";
 
 const FileManager = () => {
   const [files, setFiles] = useState([]);
@@ -7,271 +9,207 @@ const FileManager = () => {
   const [isUploading, setIsUploading] = useState(false);
   const [notification, setNotification] = useState(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
+  const [currentPath, setCurrentPath] = useState([]);
+  const [searchQuery, setSearchQuery] = useState("");
 
-  // Show notification
-  const showNotification = (message, type = 'success') => {
+  const API_URL = "http://localhost:5000/api/files";
+
+  const showNotification = (message, type = "success") => {
     setNotification({ message, type });
     setTimeout(() => setNotification(null), 3000);
   };
 
-  // Load all files from backend
+  // Load files/folders
   const loadFiles = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/files/');
+      const res = await fetch(`${API_URL}?path=${currentPath.join("/")}`);
       const data = await res.json();
       setFiles(data);
-    } catch (error) {
-      showNotification('Failed to load files', 'error');
+    } catch {
+      showNotification("Failed to load files", "error");
     }
   };
 
   useEffect(() => {
     loadFiles();
-  }, []);
+  }, [currentPath]);
 
-  // Handle file upload
+  // Upload file
   const handleUpload = async () => {
-    if (!selectedFile) {
-      showNotification('Please choose a file first', 'error');
-      return;
-    }
-    
+    if (!selectedFile) return showNotification("Please choose a file first", "error");
+
     setIsUploading(true);
     const formData = new FormData();
-    formData.append('file', selectedFile);
+    formData.append("file", selectedFile);
 
     try {
-      const res = await fetch('http://localhost:5000/api/files/upload', {
-        method: 'POST',
-        body: formData
-      });
-      const data = await res.json();
-      showNotification(data.message, 'success');
+      await fetch(`${API_URL}/upload?path=${currentPath.join("/")}`, { method: "POST", body: formData });
+      showNotification("File uploaded successfully!");
       setSelectedFile(null);
-      // Reset file input
-      const fileInput = document.querySelector('input[type="file"]');
-      if (fileInput) fileInput.value = '';
+      setIsUploadModalOpen(false);
       loadFiles();
-    } catch (error) {
-      showNotification('Upload failed', 'error');
+    } catch {
+      showNotification("Upload failed", "error");
     } finally {
       setIsUploading(false);
     }
   };
 
-  // Delete a file
-  const handleDelete = async (filename) => {
-    if (!window.confirm(`Are you sure you want to delete ${filename}?`)) return;
-    
+  // Create folder
+  const handleCreateFolder = async () => {
+    const name = prompt("Enter folder name:");
+    if (!name) return;
     try {
-      await fetch(`http://localhost:5000/api/files/${filename}`, { method: 'DELETE' });
-      showNotification(`${filename} deleted successfully`, 'success');
+      await fetch(`${API_URL}/folder`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, parent: currentPath.join("/") })
+      });
+      showNotification("Folder created!");
       loadFiles();
-    } catch (error) {
-      showNotification('Failed to delete file', 'error');
+    } catch {
+      showNotification("Failed to create folder", "error");
     }
   };
 
-  // Handle drag and drop
-  const handleDragEnter = (e) => {
-    e.preventDefault();
-    setIsDragging(true);
+  // Delete
+  const handleDelete = async (name, type) => {
+    if (!window.confirm(`Delete ${name}?`)) return;
+    try {
+      await fetch(`${API_URL}/delete?path=${[...currentPath, name].join("/")}`, { method: "DELETE" });
+      showNotification(`${type} deleted`);
+      loadFiles();
+    } catch {
+      showNotification("Delete failed", "error");
+    }
   };
 
-  const handleDragLeave = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-  };
-
+  // Drag & drop
+  const handleDragEnter = (e) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); setIsDragging(false); };
   const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const droppedFile = e.dataTransfer.files[0];
-    if (droppedFile) {
-      setSelectedFile(droppedFile);
-    }
+    e.preventDefault(); setIsDragging(false);
+    const file = e.dataTransfer.files[0]; if(file) setSelectedFile(file);
   };
 
-  // Format file size
+  const filteredFiles = files.filter(file =>
+    file.name && file.name.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
   const formatFileSize = (bytes) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  // Get file extension
-  const getFileExtension = (filename) => {
-    return filename.split('.').pop().toLowerCase();
-  };
-
-  // Get file icon color based on extension
-  const getFileIconColor = (extension) => {
-    const colors = {
-      'pdf': 'text-red-500',
-      'doc': 'text-blue-500',
-      'docx': 'text-blue-500',
-      'txt': 'text-gray-500',
-      'jpg': 'text-green-500',
-      'jpeg': 'text-green-500',
-      'png': 'text-green-500',
-      'gif': 'text-green-500',
-      'mp4': 'text-purple-500',
-      'mp3': 'text-yellow-500',
-      'zip': 'text-orange-500',
-      'rar': 'text-orange-500'
-    };
-    return colors[extension] || 'text-gray-400';
+    if (bytes === 0) return "0 Bytes";
+    const k = 1024, sizes = ["Bytes","KB","MB","GB"];
+    const i = Math.floor(Math.log(bytes)/Math.log(k));
+    return (bytes/Math.pow(k,i)).toFixed(2)+" "+sizes[i];
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-6">
-      <div className="max-w-4xl mx-auto">
-        {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-gray-800 mb-2">File Manager</h1>
-          <p className="text-gray-600">Upload, manage, and download your files</p>
+    <div className="min-h-screen bg-gray-50">
+      {/* Header */}
+      <div className="bg-white border-b px-6 py-4 flex justify-between items-center">
+        <div className="flex items-center gap-2">
+          <HardDrive size={32} className="text-blue-500"/>
+          <h1 className="text-2xl font-semibold">Drive</h1>
+        </div>
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20}/>
+          <input type="text" placeholder="Search" className="pl-10 pr-4 py-2 w-80 border rounded-lg"
+                 value={searchQuery} onChange={(e)=>setSearchQuery(e.target.value)}/>
+        </div>
+      </div>
+
+      {/* Notifications */}
+      {notification && (
+        <div className={`fixed top-4 right-4 p-4 rounded-lg flex items-center gap-2 ${notification.type==="success"?"bg-green-500 text-white":"bg-red-500 text-white"}`}>
+          {notification.type==="success"?<CheckCircle size={20}/>:<AlertCircle size={20}/>}
+          {notification.message}
+        </div>
+      )}
+
+      <div className="flex">
+        {/* Sidebar */}
+        <div className="w-64 bg-white border-r p-4 flex flex-col gap-2">
+          <button onClick={()=>setIsUploadModalOpen(true)} className="flex items-center gap-2 bg-blue-500 text-white px-4 py-2 rounded"> <Upload size={18}/> Upload File </button>
+          <button onClick={handleCreateFolder} className="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded"> <Folder size={18}/> New Folder </button>
         </div>
 
-        {/* Notification */}
-        {notification && (
-          <div className={`fixed top-4 right-4 z-50 p-4 rounded-lg shadow-lg flex items-center gap-2 ${
-            notification.type === 'success' 
-              ? 'bg-green-500 text-white' 
-              : 'bg-red-500 text-white'
-          }`}>
-            {notification.type === 'success' ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
-            {notification.message}
-          </div>
-        )}
-
-        {/* Upload Section */}
-        <div className="bg-white rounded-xl shadow-lg p-6 mb-8">
+        {/* Main */}
+        <div className="flex-1 p-6">
+          {/* Breadcrumb */}
           <div className="flex items-center gap-2 mb-4">
-            <Upload className="text-blue-500" size={24} />
-            <h2 className="text-2xl font-semibold text-gray-800">Upload File</h2>
-          </div>
-          
-          <div className="space-y-4">
-            <div
-              className={`relative border-2 border-dashed rounded-lg p-8 text-center transition-colors ${
-                isDragging
-                  ? 'border-blue-400 bg-blue-50'
-                  : selectedFile
-                  ? 'border-green-400 bg-green-50'
-                  : 'border-gray-300 bg-gray-50 hover:border-gray-400'
-              }`}
-              onDragEnter={handleDragEnter}
-              onDragOver={(e) => e.preventDefault()}
-              onDragLeave={handleDragLeave}
-              onDrop={handleDrop}
-            >
-              {selectedFile ? (
-                <div className="space-y-2">
-                  <File className="mx-auto text-green-500" size={48} />
-                  <p className="text-lg font-medium text-gray-700">{selectedFile.name}</p>
-                  <p className="text-sm text-gray-500">{formatFileSize(selectedFile.size)}</p>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <Upload className="mx-auto text-gray-400" size={48} />
-                  <p className="text-lg text-gray-600">
-                    Drag and drop a file here, or{' '}
-                    <label className="text-blue-500 hover:text-blue-600 cursor-pointer underline">
-                      browse
-                      <input
-                        type="file"
-                        className="hidden"
-                        onChange={(e) => setSelectedFile(e.target.files[0])}
-                      />
-                    </label>
-                  </p>
-                </div>
-              )}
-            </div>
-
-            <button
-              onClick={handleUpload}
-              disabled={!selectedFile || isUploading}
-              className={`w-full py-3 px-6 rounded-lg font-medium transition-all flex items-center justify-center gap-2 ${
-                !selectedFile || isUploading
-                  ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  : 'bg-blue-500 hover:bg-blue-600 text-white shadow-lg hover:shadow-xl'
-              }`}
-            >
-              {isUploading ? (
-                <>
-                  <Loader className="animate-spin" size={20} />
-                  Uploading...
-                </>
-              ) : (
-                <>
-                  <Upload size={20} />
-                  Upload File
-                </>
-              )}
-            </button>
-          </div>
-        </div>
-
-        {/* Files List */}
-        <div className="bg-white rounded-xl shadow-lg p-6">
-          <div className="flex items-center justify-between mb-6">
-            <div className="flex items-center gap-2">
-              <File className="text-blue-500" size={24} />
-              <h2 className="text-2xl font-semibold text-gray-800">Your Files</h2>
-            </div>
-            <span className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
-              {files.length} files
-            </span>
+            <span className="cursor-pointer text-blue-600" onClick={()=>setCurrentPath([])}>Root</span>
+            {currentPath.map((f,i)=>(
+              <React.Fragment key={i}>
+                <span>/</span>
+                <span className="cursor-pointer text-blue-600" onClick={()=>setCurrentPath(currentPath.slice(0,i+1))}>{f}</span>
+              </React.Fragment>
+            ))}
           </div>
 
-          {files.length === 0 ? (
+          {/* Files */}
+          {filteredFiles.length===0 ? (
             <div className="text-center py-12">
-              <File className="mx-auto text-gray-300 mb-4" size={64} />
-              <p className="text-gray-500 text-lg">No files uploaded yet</p>
-              <p className="text-gray-400">Upload your first file to get started</p>
+              <HardDrive size={64} className="mx-auto text-gray-300"/>
+              <p className="text-gray-500">No files here</p>
             </div>
           ) : (
-            <div className="grid gap-3">
-              {files.map((filename, index) => (
-                <div
-                  key={filename}
-                  className="flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 rounded-lg transition-colors"
-                >
-                  <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <File className={`flex-shrink-0 ${getFileIconColor(getFileExtension(filename))}`} size={24} />
-                    <div className="min-w-0 flex-1">
-                      <p className="font-medium text-gray-800 truncate">{filename}</p>
-                      <p className="text-sm text-gray-500 uppercase">{getFileExtension(filename)} file</p>
-                    </div>
-                  </div>
-                  
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <a
-                      href={`http://localhost:5000/api/files/download/${filename}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="p-2 text-blue-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
-                      title="Download file"
-                    >
-                      <Download size={18} />
-                    </a>
-                    <button
-                      onClick={() => handleDelete(filename)}
-                      className="p-2 text-red-500 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Delete file"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
+            <div className="grid grid-cols-6 gap-4">
+              {filteredFiles.map(file=>(
+                <div key={file.name} className="p-4 bg-white rounded-lg shadow cursor-pointer">
+                  {file.type==="folder"?(
+                    <>
+                      <Folder size={32} className="text-yellow-500 mx-auto" onClick={()=>setCurrentPath([...currentPath,file.name])}/>
+                      <p className="text-center truncate mt-2">{file.name}</p>
+                      <button onClick={(e)=>{ e.stopPropagation(); handleDelete(file.name,"Folder"); }} className="text-red-500 mx-auto mt-1 flex justify-center"><Trash2 size={16}/></button>
+                    </>
+                  ):(
+                    <>
+                      <File size={32} className="text-gray-500 mx-auto"/>
+                      <p className="text-center truncate mt-2">{file.name}</p>
+                      <div className="flex justify-center gap-2 mt-2">
+                        <a href={`http://localhost:5000/uploads/${[...currentPath,file.name].join("/")}`} download className="text-blue-500"><Download size={16}/></a>
+                        <button onClick={()=>handleDelete(file.name,"File")} className="text-red-500"><Trash2 size={16}/></button>
+                      </div>
+                    </>
+                  )}
                 </div>
               ))}
             </div>
           )}
         </div>
       </div>
+
+      {/* Upload Modal */}
+      {isUploadModalOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 w-96">
+            <div className="flex justify-between mb-4">
+              <h3 className="font-semibold">Upload File</h3>
+              <button onClick={()=>{ setIsUploadModalOpen(false); setSelectedFile(null); }}><X size={20}/></button>
+            </div>
+            <div className={`border-2 border-dashed p-6 text-center ${isDragging?"border-blue-400 bg-blue-50":selectedFile?"border-green-400 bg-green-50":"border-gray-300"}`}
+                 onDragEnter={handleDragEnter} onDragOver={(e)=>e.preventDefault()} onDragLeave={handleDragLeave} onDrop={handleDrop}>
+              {selectedFile ? (
+                <>
+                  <File size={48} className="mx-auto text-green-500"/>
+                  <p>{selectedFile.name}</p>
+                  <p className="text-sm text-gray-500">{formatFileSize(selectedFile.size)}</p>
+                </>
+              ):(
+                <>
+                  <Upload size={48} className="mx-auto text-gray-400"/>
+                  <p>Drag file or <label className="text-blue-500 underline cursor-pointer">browse<input type="file" className="hidden" onChange={(e)=>setSelectedFile(e.target.files[0])}/></label></p>
+                </>
+              )}
+            </div>
+            <div className="flex gap-2 mt-4">
+              <button onClick={()=>{ setIsUploadModalOpen(false); setSelectedFile(null); }} className="flex-1 border rounded py-2">Cancel</button>
+              <button onClick={handleUpload} disabled={!selectedFile || isUploading} className="flex-1 bg-blue-500 text-white rounded py-2">{isUploading?"Uploading...":"Upload"}</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

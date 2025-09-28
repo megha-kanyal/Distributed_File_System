@@ -1,39 +1,64 @@
-const fs = require('fs');
-const path = require('path');
+import fs from "fs";
+import path from "path";
 
-// const uploadFile = (req, res) => {
-//   if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-//   res.status(200).json({ message: 'File uploaded', file: req.file.filename });
-// };
+const BASE_DIR = path.join(process.cwd(), "uploads");
 
-const uploadFile = (req, res) => {
-  try {
-    console.log('Received file:', req.file);
-    if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-    res.status(200).json({ message: 'File uploaded', file: req.file.filename });
-  } catch (error) {
-    console.error('Upload error:', error);
-    res.status(500).json({ message: 'Internal server error', error: error.message });
-  }
+// Helper: get full path from query
+const getFullPath = (relPath) => path.join(BASE_DIR, relPath || "");
+
+// List files/folders
+export const getFiles = (req, res) => {
+  const relPath = req.query.path || "";
+  const fullPath = getFullPath(relPath);
+
+  fs.readdir(fullPath, { withFileTypes: true }, (err, items) => {
+    if (err) return res.status(500).json({ error: "Cannot read folder" });
+    const files = items.map(i => ({
+      name: i.name,
+      type: i.isDirectory() ? "folder" : "file",
+      size: i.isFile() ? fs.statSync(path.join(fullPath, i.name)).size : 0
+    }));
+    res.json(files);
+  });
 };
 
-const getFiles = (req, res) => {
-  const files = fs.readdirSync(path.join(__dirname, '../uploads'));
-  res.status(200).json(files);
+// Upload file
+export const uploadFile = (req, res) => {
+  const relPath = req.query.path || "";
+  const targetDir = getFullPath(relPath);
+
+  if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+
+  const file = req.file;
+  const targetPath = path.join(targetDir, file.originalname);
+
+  fs.rename(file.path, targetPath, (err) => {
+    if (err) return res.status(500).json({ error: "Upload failed" });
+    res.json({ message: "File uploaded" });
+  });
 };
 
-const downloadFile = (req, res) => {
-  const filePath = path.join(__dirname, '../uploads', req.params.filename);
-  if (fs.existsSync(filePath)) res.download(filePath);
-  else res.status(404).json({ message: 'File not found' });
+// Create folder
+export const createFolder = (req, res) => {
+  const { name, parent } = req.body;
+  const folderPath = getFullPath(path.join(parent || "", name));
+
+  if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
+  res.json({ message: "Folder created" });
 };
 
-const deleteFile = (req, res) => {
-  const filePath = path.join(__dirname, '../uploads', req.params.filename);
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
-    res.status(200).json({ message: 'File deleted' });
-  } else res.status(404).json({ message: 'File not found' });
-};
+// Delete file/folder
+export const deleteFileOrFolder = (req, res) => {
+  const relPath = req.query.path;
+  if (!relPath) return res.status(400).json({ error: "Path required" });
 
-module.exports = { uploadFile, getFiles, downloadFile, deleteFile };
+  const targetPath = getFullPath(relPath);
+
+  if (!fs.existsSync(targetPath)) return res.status(404).json({ error: "Not found" });
+
+  const stats = fs.statSync(targetPath);
+  if (stats.isDirectory()) fs.rmSync(targetPath, { recursive: true, force: true });
+  else fs.unlinkSync(targetPath);
+
+  res.json({ message: "Deleted" });
+};

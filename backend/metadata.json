@@ -1,0 +1,22 @@
+{
+  "files": [
+    {
+      "fileId": "1758904541705",
+      "filename": "abc.txt",
+      "totalChunks": 3,
+      "chunks": [
+        "chunks/1758904541705_part_1",
+        "chunks/1758904541705_part_2",
+        "chunks/1758904541705_part_3"
+      ]
+    },
+    {
+      "fileId": "1759074546899",
+      "filename": "abc.txt",
+      "totalChunks": "1",
+      "chunks": [
+        "C:\\Users\\megha\\Distribute_File_System\\backend\\chunks\\1759074546899_part_1"
+      ]
+    }
+  ]
+}

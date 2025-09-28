@@ -1,20 +1,18 @@
-const express = require('express');
+import express from "express";
+import {
+  getFiles,
+  uploadFile,
+  createFolder,
+  deleteFileOrFolder
+} from "../controllers/fileController.js";
+import multer from "multer";
+
 const router = express.Router();
-const multer = require('multer');
-const path = require('path');
-const { uploadFile, getFiles, downloadFile, deleteFile } = require('../controllers/fileController');
+const upload = multer({ dest: "uploads/" });
 
-// Multer storage
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, path.join(__dirname, '../uploads')),
-  filename: (req, file, cb) => cb(null, Date.now() + '-' + file.originalname)
-});
+router.get("/", getFiles);
+router.post("/upload", upload.single("file"), uploadFile);
+router.post("/folder", createFolder);
+router.delete("/delete", deleteFileOrFolder);
 
-const upload = multer({ storage });
-
-router.post('/upload', upload.single('file'), uploadFile);
-router.get('/', getFiles);
-router.get('/download/:filename', downloadFile);
-router.delete('/:filename', deleteFile);
-
-module.exports = router;
+export default router;

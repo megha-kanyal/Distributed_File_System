@@ -1,57 +1,143 @@
+// dfs_frontend/src/components/FileManager.jsx
 import React, { useState, useEffect } from "react";
 import {
   Upload, File, Folder, Download, Trash2, CheckCircle, AlertCircle, X, HardDrive, Search
 } from "lucide-react";
+
+const CHUNK_SIZE = 1 * 1024 * 1024; // 1 MB fixed
+const API_URL = "http://localhost:5000/api/files";
+
+const formatFileSize = (bytes) => {
+  if (!bytes) return "0 Bytes";
+  const k = 1024, sizes = ["Bytes", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return (bytes / Math.pow(k, i)).toFixed(2) + " " + sizes[i];
+};
 
 const FileManager = () => {
   const [files, setFiles] = useState([]);
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [notification, setNotification] = useState(null);
-  const [isDragging, setIsDragging] = useState(false);
   const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
   const [currentPath, setCurrentPath] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
-
-  const API_URL = "http://localhost:5000/api/files";
+  const [chunksInfo, setChunksInfo] = useState(null);
 
   const showNotification = (message, type = "success") => {
     setNotification({ message, type });
-    setTimeout(() => setNotification(null), 3000);
+    setTimeout(() => setNotification(null), 3500);
   };
 
   const loadFiles = async () => {
     try {
-      const res = await fetch(`${API_URL}?path=${currentPath.join("/")}`);
+      const res = await fetch(`${API_URL}?path=${encodeURIComponent(currentPath.join("/"))}`);
       const data = await res.json();
       setFiles(data);
-    } catch {
+    } catch (e) {
       showNotification("Failed to load files", "error");
     }
   };
 
-  useEffect(() => {
-    loadFiles();
-  }, [currentPath]);
+  useEffect(() => { loadFiles(); }, [currentPath]);
 
-  // ✅ Fixed Upload Function
-  const handleUpload = async () => {
-    if (!selectedFile) return showNotification("Please choose a file first", "error");
+  // prepare chunk metadata
+  const prepareChunks = (file) => {
+    const total = Math.ceil(file.size / CHUNK_SIZE);
+    const fileId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+    const chunks = new Array(total).fill(0).map((_, i) => {
+      const start = i * CHUNK_SIZE;
+      const end = Math.min(file.size, start + CHUNK_SIZE);
+      return { index: i, start, end, size: end - start, uploaded: false };
+    });
+    return { fileId, chunks, total };
+  };
+
+  const splitAndPreview = (file) => {
+    const info = prepareChunks(file);
+    setChunksInfo({ ...info, filename: file.name });
+    setSelectedFile(file);
+    setIsUploadModalOpen(true);
+  };
+
+  const handleSelectFile = () => {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.onchange = (e) => {
+      const file = e.target.files[0];
+      if (file) splitAndPreview(file);
+    };
+    input.click();
+  };
+
+  // upload a single chunk
+  const uploadChunk = async (file, fileId, chunkMeta, relPath) => {
+    const blob = file.slice(chunkMeta.start, chunkMeta.end);
+    const fd = new FormData();
+    fd.append("chunk", blob, `${fileId}_part_${chunkMeta.index}`);
+    fd.append("fileId", fileId);
+    fd.append("filename", file.name);
+    fd.append("index", chunkMeta.index);
+    fd.append("totalChunks", Math.ceil(file.size / CHUNK_SIZE));
+    if (relPath) fd.append("path", relPath);
+
+    const resp = await fetch(`${API_URL}/upload-chunk`, {
+      method: "POST",
+      body: fd
+    });
+    return resp.json();
+  };
+
+  // orchestrate uploads (simple concurrency naive approach)
+  const uploadAllChunks = async (file, fileId, chunks, relPath) => {
+    // simple parallel uploads with limited concurrency
+    const concurrency = 3;
+    let pointer = 0;
+
+    const updated = [...chunks];
+    const workers = new Array(concurrency).fill(0).map(async () => {
+      while (pointer < updated.length) {
+        const idx = pointer++;
+        try {
+          await uploadChunk(file, fileId, updated[idx], relPath);
+          updated[idx].uploaded = true;
+          setChunksInfo(prev => prev ? ({ ...prev, chunks: updated.slice() }) : prev);
+        } catch (e) {
+          console.error("Chunk upload error", e);
+        }
+      }
+    });
+
+    await Promise.all(workers);
+    return updated;
+  };
+
+  const handleChunkedUpload = async () => {
+    if (!selectedFile || !chunksInfo) return;
     setIsUploading(true);
-
-    const formData = new FormData();
-    formData.append("file", selectedFile);
+    const relPath = currentPath.join("/");
 
     try {
-      await fetch(`${API_URL}/upload?path=${encodeURIComponent(currentPath.join("/"))}`, {
+      await uploadAllChunks(selectedFile, chunksInfo.fileId, chunksInfo.chunks, relPath);
+
+      // request merge
+      const mergeResp = await fetch(`${API_URL}/merge`, {
         method: "POST",
-        body: formData,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileId: chunksInfo.fileId, filename: chunksInfo.filename, path: relPath })
       });
-      showNotification("File uploaded successfully!");
-      setSelectedFile(null);
-      setIsUploadModalOpen(false);
-      loadFiles();
-    } catch {
+      const mergeJson = await mergeResp.json();
+      if (mergeJson.ok || mergeJson.path) {
+        showNotification("Uploaded & merged successfully");
+        setIsUploadModalOpen(false);
+        setSelectedFile(null);
+        setChunksInfo(null);
+        setTimeout(loadFiles, 600);
+      } else {
+        showNotification("Merge failed: " + (mergeJson.error || "unknown"), "error");
+      }
+    } catch (e) {
+      console.error(e);
       showNotification("Upload failed", "error");
     } finally {
       setIsUploading(false);
@@ -85,23 +171,9 @@ const FileManager = () => {
     }
   };
 
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setIsDragging(false);
-    const file = e.dataTransfer.files[0];
-    if (file) setSelectedFile(file);
-  };
-
   const filteredFiles = files.filter(f =>
     f.name?.toLowerCase().includes(searchQuery.toLowerCase())
   );
-
-  const formatFileSize = (bytes) => {
-    if (bytes === 0) return "0 Bytes";
-    const k = 1024, sizes = ["Bytes", "KB", "MB", "GB"];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return (bytes / Math.pow(k, i)).toFixed(2) + " " + sizes[i];
-  };
 
   return (
     <div className="min-h-screen bg-[#D1E1D7]">
@@ -133,11 +205,10 @@ const FileManager = () => {
         </div>
       )}
 
-      {/* Sidebar + Main */}
       <div className="flex">
         <div className="w-64 bg-green-100 border-r p-4 flex flex-col gap-2">
           <button
-            onClick={() => setIsUploadModalOpen(true)}
+            onClick={() => handleSelectFile()}
             className="flex items-center gap-2 bg-blue-900 text-white px-4 py-2 rounded"
           >
             <Upload size={18} /> Upload File
@@ -150,7 +221,6 @@ const FileManager = () => {
           </button>
         </div>
 
-        {/* Files */}
         <div className="flex-1 p-6">
           <div className="flex items-center gap-2 mb-4">
             <span className="cursor-pointer text-blue-900" onClick={() => setCurrentPath([])}>Root</span>
@@ -185,10 +255,7 @@ const FileManager = () => {
                       />
                       <p className="text-center truncate mt-2">{file.name}</p>
                       <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(file.name, "Folder");
-                        }}
+                        onClick={(e) => { e.stopPropagation(); handleDelete(file.name, "Folder"); }}
                         className="text-red-500 mx-auto mt-1 flex justify-center"
                       >
                         <Trash2 size={16} />
@@ -198,17 +265,15 @@ const FileManager = () => {
                     <>
                       <File size={32} className="text-gray-500 mx-auto" />
                       <p className="text-center truncate mt-2">{file.name}</p>
+                      <p className="text-center text-xs text-gray-400">{formatFileSize(file.size)}</p>
                       <div className="flex justify-center gap-2 mt-2">
                         <a
-  href={`http://localhost:5000/download/${[...currentPath, file.name].join("/")}`}
-  className="text-blue-500"
-  download
->
-  <Download size={16} />
-</a>
-
-
-                        
+                          href={`http://localhost:5000/download/${[...currentPath, file.name].join("/")}`}
+                          className="text-blue-500"
+                          download
+                        >
+                          <Download size={16} />
+                        </a>
                         <button onClick={() => handleDelete(file.name, "File")} className="text-red-500">
                           <Trash2 size={16} />
                         </button>
@@ -222,61 +287,54 @@ const FileManager = () => {
         </div>
       </div>
 
-      {/* Upload Modal */}
-      {isUploadModalOpen && (
+      {/* Upload Modal / Chunk Preview */}
+      {isUploadModalOpen && selectedFile && chunksInfo && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
           <div className="bg-green-500 rounded-lg p-6 w-96">
             <div className="flex justify-between mb-4">
-              <h3 className="font-semibold">Upload File</h3>
-              <button onClick={() => { setIsUploadModalOpen(false); setSelectedFile(null); }}>
+              <h3 className="font-semibold">Upload File in Chunks (1 MB)</h3>
+              <button onClick={() => { setIsUploadModalOpen(false); setSelectedFile(null); setChunksInfo(null); }}>
                 <X size={20} />
               </button>
             </div>
-            <div
-              className={`border-2 border-dashed p-6 text-center ${
-                isDragging ? "border-blue-400 bg-blue-50" :
-                selectedFile ? "border-green-400 bg-green-50" :
-                "border-gray-300"
-              }`}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-            >
-              {selectedFile ? (
-                <>
-                  <File size={48} className="mx-auto text-green-500" />
-                  <p>{selectedFile.name}</p>
-                  <p className="text-sm text-gray-500">{formatFileSize(selectedFile.size)}</p>
-                </>
-              ) : (
-                <>
-                  <Upload size={48} className="mx-auto text-gray-400" />
-                  <p>
-                    Drag file or{" "}
-                    <label className="text-blue-500 underline cursor-pointer">
-                      browse
-                      <input
-                        type="file"
-                        className="hidden"
-                        onChange={(e) => setSelectedFile(e.target.files[0])}
-                      />
-                    </label>
-                  </p>
-                </>
-              )}
+
+            <div className="mb-3">
+              <div className="flex items-center gap-3">
+                <File size={36} />
+                <div>
+                  <div className="font-medium">{chunksInfo.filename}</div>
+                  <div className="text-sm text-gray-700">{formatFileSize(selectedFile.size)}</div>
+                </div>
+              </div>
             </div>
+
+            <div className="max-h-48 overflow-auto bg-white p-2 rounded mb-3">
+              {chunksInfo.chunks.map(c => (
+                <div key={c.index} className="mb-2">
+                  <div className="flex justify-between text-xs">
+                    <div>Chunk {c.index + 1} / {chunksInfo.total}</div>
+                    <div>{formatFileSize(c.size)}</div>
+                  </div>
+                  <div className="w-full bg-gray-200 h-2 rounded mt-1">
+                    <div style={{ width: `${c.uploaded ? 100 : 2}%` }} className="h-2 rounded bg-green-500" />
+                  </div>
+                </div>
+              ))}
+            </div>
+
             <div className="flex gap-2 mt-4">
               <button
-                onClick={() => { setIsUploadModalOpen(false); setSelectedFile(null); }}
+                onClick={() => { setIsUploadModalOpen(false); setSelectedFile(null); setChunksInfo(null); }}
                 className="flex-1 border rounded py-2"
               >
                 Cancel
               </button>
               <button
-                onClick={handleUpload}
-                disabled={!selectedFile || isUploading}
+                onClick={handleChunkedUpload}
+                disabled={isUploading}
                 className="flex-1 bg-blue-500 text-white rounded py-2"
               >
-                {isUploading ? "Uploading..." : "Upload"}
+                {isUploading ? "Uploading..." : `Upload (${chunksInfo.total} chunks)`}
               </button>
             </div>
           </div>

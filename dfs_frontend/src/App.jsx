@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import './App.css'
-import FileManager from './components/FileManager';
+import FileManager from './components/FileManager'
 
 function App() {
   const [count, setCount] = useState(0)

@@ -1,7 +1,6 @@
-// dfs_frontend/src/components/FileManager.jsx
 import React, { useState, useEffect } from "react";
 import {
-  Upload, File, Folder, Download, Trash2, CheckCircle, AlertCircle, X, HardDrive, Search
+  Upload, File, Folder, Download, Trash2, CheckCircle, AlertCircle, X, HardDrive, Search, FolderPlus, Cloud
 } from "lucide-react";
 
 const CHUNK_SIZE = 1 * 1024 * 1024; // 1 MB fixed
@@ -41,7 +40,6 @@ const FileManager = () => {
 
   useEffect(() => { loadFiles(); }, [currentPath]);
 
-  // prepare chunk metadata
   const prepareChunks = (file) => {
     const total = Math.ceil(file.size / CHUNK_SIZE);
     const fileId = `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
@@ -70,7 +68,6 @@ const FileManager = () => {
     input.click();
   };
 
-  // upload a single chunk
   const uploadChunk = async (file, fileId, chunkMeta, relPath) => {
     const blob = file.slice(chunkMeta.start, chunkMeta.end);
     const fd = new FormData();
@@ -88,9 +85,7 @@ const FileManager = () => {
     return resp.json();
   };
 
-  // orchestrate uploads (simple concurrency naive approach)
   const uploadAllChunks = async (file, fileId, chunks, relPath) => {
-    // simple parallel uploads with limited concurrency
     const concurrency = 3;
     let pointer = 0;
 
@@ -120,7 +115,6 @@ const FileManager = () => {
     try {
       await uploadAllChunks(selectedFile, chunksInfo.fileId, chunksInfo.chunks, relPath);
 
-      // request merge
       const mergeResp = await fetch(`${API_URL}/merge`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -176,59 +170,83 @@ const FileManager = () => {
   );
 
   return (
-    <div className="min-h-screen bg-[#D1E1D7]">
+    <div className="min-h-screen bg-gradient-to-br from-teal-600 via-teal-700 to-emerald-800">
       {/* Header */}
-      <div className="bg-green-100 border-b px-6 py-4 flex justify-between items-center">
-        <div className="flex items-center gap-2">
-          <HardDrive size={32} className="text-blue-500" />
-          <h1 className="text-2xl font-semibold">Drive</h1>
-        </div>
-        <div className="relative bg-white">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-          <input
-            type="text"
-            placeholder="Search"
-            className="pl-10 pr-4 py-2 w-80 border rounded-lg"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-          />
+      <div className="bg-teal-800/40 backdrop-blur-xl border-b border-teal-600/30 px-8 py-5 shadow-2xl">
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-4">
+            <div className="p-3 bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 rounded-2xl shadow-xl transform hover:scale-110 transition-transform">
+              <Cloud size={32} className="text-white" />
+            </div>
+            <div>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-amber-300 via-yellow-400 to-amber-300 bg-clip-text text-transparent">
+                Impact Drive
+              </h1>
+              <p className="text-teal-200 text-sm">Professional Cloud Storage</p>
+            </div>
+          </div>
+          <div className="relative">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-teal-300" size={20} />
+            <input
+              type="text"
+              placeholder="Search your files..."
+              className="pl-12 pr-6 py-3 w-96 bg-teal-700/50 border border-teal-500/30 rounded-2xl text-white placeholder-teal-300 focus:outline-none focus:ring-2 focus:ring-amber-400 focus:border-transparent transition-all shadow-lg"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
         </div>
       </div>
 
       {/* Notification */}
       {notification && (
-        <div className={`fixed top-4 right-4 p-4 rounded-lg flex items-center gap-2 ${
-          notification.type === "success" ? "bg-green-500 text-white" : "bg-red-500 text-white"
+        <div className={`fixed top-8 right-8 p-5 rounded-2xl flex items-center gap-3 shadow-2xl backdrop-blur-xl z-50 transform transition-all duration-300 animate-slide-in ${
+          notification.type === "success" 
+            ? "bg-gradient-to-r from-emerald-500 via-teal-500 to-emerald-600 text-white border border-emerald-400/30" 
+            : "bg-gradient-to-r from-red-500 via-rose-500 to-red-600 text-white border border-red-400/30"
         }`}>
-          {notification.type === "success" ? <CheckCircle size={20} /> : <AlertCircle size={20} />}
-          {notification.message}
+          {notification.type === "success" ? <CheckCircle size={24} /> : <AlertCircle size={24} />}
+          <span className="font-semibold text-lg">{notification.message}</span>
         </div>
       )}
 
-      <div className="flex">
-        <div className="w-64 bg-green-100 border-r p-4 flex flex-col gap-2">
-          <button
-            onClick={() => handleSelectFile()}
-            className="flex items-center gap-2 bg-blue-900 text-white px-4 py-2 rounded"
-          >
-            <Upload size={18} /> Upload File
-          </button>
-          <button
-            onClick={handleCreateFolder}
-            className="flex items-center gap-2 bg-gray-700 text-white px-4 py-2 rounded"
-          >
-            <Folder size={18} /> New Folder
-          </button>
+      <div className="flex min-h-[calc(100vh-88px)]">
+        {/* Sidebar */}
+        <div className="w-72 bg-teal-800/20 backdrop-blur-sm border-r border-teal-600/30 p-6">
+          <div className="space-y-3">
+            <button
+              onClick={handleSelectFile}
+              className="w-full flex items-center justify-center gap-3 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:via-yellow-400 hover:to-amber-500 text-white px-6 py-4 rounded-2xl font-bold shadow-xl hover:shadow-2xl transition-all duration-200 hover:scale-105 active:scale-95 border border-amber-400/30"
+            >
+              <Upload size={22} strokeWidth={2.5} /> Upload File
+            </button>
+            <button
+              onClick={handleCreateFolder}
+              className="w-full flex items-center justify-center gap-3 bg-teal-700/50 hover:bg-teal-600/60 text-teal-100 px-6 py-4 rounded-2xl font-bold border border-teal-500/40 hover:border-teal-400/60 transition-all duration-200 hover:scale-105 active:scale-95 shadow-lg"
+            >
+              <FolderPlus size={22} strokeWidth={2.5} /> New Folder
+            </button>
+          </div>
+
+
         </div>
 
-        <div className="flex-1 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="cursor-pointer text-blue-900" onClick={() => setCurrentPath([])}>Root</span>
+        {/* Main Content */}
+        <div className="flex-1 p-8 bg-gradient-to-br from-slate-50 via-white to-slate-100">
+          {/* Breadcrumb */}
+          <div className="flex items-center gap-2 mb-8 text-slate-700 bg-white px-6 py-4 rounded-2xl border border-slate-200 shadow-lg">
+            <HardDrive size={20} className="text-amber-500" />
+            <span 
+              className="cursor-pointer hover:text-amber-500 transition-colors font-semibold hover:scale-105 inline-block" 
+              onClick={() => setCurrentPath([])}
+            >
+              Root
+            </span>
             {currentPath.map((f, i) => (
               <React.Fragment key={i}>
-                <span>/</span>
+                <span className="text-slate-400">/</span>
                 <span
-                  className="cursor-pointer text-blue-900"
+                  className="cursor-pointer hover:text-amber-500 transition-colors font-semibold hover:scale-105 inline-block"
                   onClick={() => setCurrentPath(currentPath.slice(0, i + 1))}
                 >
                   {f}
@@ -237,45 +255,62 @@ const FileManager = () => {
             ))}
           </div>
 
+          {/* Files Grid */}
           {filteredFiles.length === 0 ? (
-            <div className="text-center py-12">
-              <HardDrive size={64} className="mx-auto text-gray-300" />
-              <p className="text-gray-500">No files here</p>
+            <div className="text-center py-20">
+              <div className="inline-block p-8 bg-white rounded-3xl mb-6 border border-slate-200 shadow-xl">
+                <HardDrive size={80} className="text-slate-300" />
+              </div>
+              <p className="text-slate-700 text-xl font-semibold">No files found</p>
+              <p className="text-slate-500 text-sm mt-2">Upload your first file to get started</p>
             </div>
           ) : (
-            <div className="grid grid-cols-6 gap-4">
+            <div className="grid grid-cols-5 gap-5">
               {filteredFiles.map(file => (
-                <div key={file.name} className="p-4 bg-white rounded-lg shadow cursor-pointer">
+                <div 
+                  key={file.name} 
+                  className="group p-5 bg-white rounded-2xl shadow-lg hover:shadow-2xl border border-slate-200 hover:border-amber-400 cursor-pointer transition-all duration-300 hover:scale-105 hover:-translate-y-2"
+                >
                   {file.type === "folder" ? (
                     <>
-                      <Folder
-                        size={32}
-                        className="text-yellow-500 mx-auto"
-                        onClick={() => setCurrentPath([...currentPath, file.name])}
-                      />
-                      <p className="text-center truncate mt-2">{file.name}</p>
+                      <div className="mb-4 flex justify-center">
+                        <div 
+                          className="p-4 bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 rounded-2xl group-hover:from-amber-300 group-hover:via-yellow-400 group-hover:to-amber-500 transition-all shadow-xl transform group-hover:scale-110"
+                          onClick={() => setCurrentPath([...currentPath, file.name])}
+                        >
+                          <Folder size={40} className="text-white" strokeWidth={2} />
+                        </div>
+                      </div>
+                      <p className="text-center truncate text-slate-800 font-bold mb-2">{file.name}</p>
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDelete(file.name, "Folder"); }}
-                        className="text-red-500 mx-auto mt-1 flex justify-center"
+                        className="text-red-500 hover:text-red-600 mx-auto flex justify-center opacity-0 group-hover:opacity-100 transition-all transform hover:scale-110"
                       >
-                        <Trash2 size={16} />
+                        <Trash2 size={20} strokeWidth={2.5} />
                       </button>
                     </>
                   ) : (
                     <>
-                      <File size={32} className="text-gray-500 mx-auto" />
-                      <p className="text-center truncate mt-2">{file.name}</p>
-                      <p className="text-center text-xs text-gray-400">{formatFileSize(file.size)}</p>
-                      <div className="flex justify-center gap-2 mt-2">
+                      <div className="mb-4 flex justify-center">
+                        <div className="p-4 bg-gradient-to-br from-teal-500 to-teal-600 rounded-2xl group-hover:from-teal-400 group-hover:to-teal-500 transition-all shadow-xl transform group-hover:scale-110">
+                          <File size={40} className="text-white" strokeWidth={2} />
+                        </div>
+                      </div>
+                      <p className="text-center truncate text-slate-800 font-bold mb-1">{file.name}</p>
+                      <p className="text-center text-xs text-slate-500 mb-3">{formatFileSize(file.size)}</p>
+                      <div className="flex justify-center gap-4 opacity-0 group-hover:opacity-100 transition-all">
                         <a
                           href={`http://localhost:5000/download/${[...currentPath, file.name].join("/")}`}
-                          className="text-blue-500"
+                          className="text-amber-500 hover:text-amber-600 transition-all transform hover:scale-125"
                           download
                         >
-                          <Download size={16} />
+                          <Download size={20} strokeWidth={2.5} />
                         </a>
-                        <button onClick={() => handleDelete(file.name, "File")} className="text-red-500">
-                          <Trash2 size={16} />
+                        <button 
+                          onClick={() => handleDelete(file.name, "File")} 
+                          className="text-red-500 hover:text-red-600 transition-all transform hover:scale-125"
+                        >
+                          <Trash2 size={20} strokeWidth={2.5} />
                         </button>
                       </div>
                     </>
@@ -287,54 +322,75 @@ const FileManager = () => {
         </div>
       </div>
 
-      {/* Upload Modal / Chunk Preview */}
+      {/* Upload Modal */}
       {isUploadModalOpen && selectedFile && chunksInfo && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
-          <div className="bg-green-500 rounded-lg p-6 w-96">
-            <div className="flex justify-between mb-4">
-              <h3 className="font-semibold">Upload File in Chunks (1 MB)</h3>
-              <button onClick={() => { setIsUploadModalOpen(false); setSelectedFile(null); setChunksInfo(null); }}>
-                <X size={20} />
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-md flex items-center justify-center z-50 p-4">
+          <div className="bg-gradient-to-br from-teal-800 to-teal-900 rounded-3xl p-8 w-full max-w-2xl shadow-2xl border border-teal-600/40">
+            <div className="flex justify-between items-center mb-6">
+              <h3 className="font-bold text-2xl text-white flex items-center gap-3">
+                <div className="p-2 bg-gradient-to-br from-amber-400 to-yellow-500 rounded-xl">
+                  <Upload size={24} className="text-white" />
+                </div>
+                Upload in Chunks
+              </h3>
+              <button 
+                onClick={() => { setIsUploadModalOpen(false); setSelectedFile(null); setChunksInfo(null); }}
+                className="p-2 hover:bg-teal-700 rounded-xl transition-all transform hover:scale-110"
+              >
+                <X size={24} className="text-teal-300" />
               </button>
             </div>
 
-            <div className="mb-3">
-              <div className="flex items-center gap-3">
-                <File size={36} />
-                <div>
-                  <div className="font-medium">{chunksInfo.filename}</div>
-                  <div className="text-sm text-gray-700">{formatFileSize(selectedFile.size)}</div>
+            <div className="mb-6 p-6 bg-gradient-to-r from-teal-700/50 to-teal-800/50 rounded-2xl border border-teal-600/40 backdrop-blur-sm">
+              <div className="flex items-center gap-5">
+                <div className="p-4 bg-gradient-to-br from-amber-400 via-yellow-500 to-amber-600 rounded-2xl shadow-xl">
+                  <File size={48} className="text-white" strokeWidth={2} />
+                </div>
+                <div className="flex-1">
+                  <div className="font-bold text-xl text-white mb-2">{chunksInfo.filename}</div>
+                  <div className="text-teal-200 mb-1">{formatFileSize(selectedFile.size)}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full border border-amber-400/30 font-semibold">
+                      {chunksInfo.total} chunks
+                    </span>
+                    <span className="text-xs px-3 py-1 bg-teal-600/30 text-teal-300 rounded-full border border-teal-500/30 font-semibold">
+                      1 MB each
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
 
-            <div className="max-h-48 overflow-auto bg-white p-2 rounded mb-3">
+            <div className="max-h-80 overflow-auto bg-teal-900/30 p-4 rounded-2xl border border-teal-700/40 mb-6 space-y-3">
               {chunksInfo.chunks.map(c => (
-                <div key={c.index} className="mb-2">
-                  <div className="flex justify-between text-xs">
-                    <div>Chunk {c.index + 1} / {chunksInfo.total}</div>
-                    <div>{formatFileSize(c.size)}</div>
+                <div key={c.index} className="p-4 bg-teal-800/40 backdrop-blur-sm rounded-xl border border-teal-700/40 hover:border-teal-600/60 transition-all">
+                  <div className="flex justify-between items-center mb-3">
+                    <div className="font-semibold text-white">Chunk {c.index + 1} of {chunksInfo.total}</div>
+                    <div className="text-teal-300 text-sm font-medium">{formatFileSize(c.size)}</div>
                   </div>
-                  <div className="w-full bg-gray-200 h-2 rounded mt-1">
-                    <div style={{ width: `${c.uploaded ? 100 : 2}%` }} className="h-2 rounded bg-green-500" />
+                  <div className="w-full bg-teal-900/50 h-3 rounded-full overflow-hidden shadow-inner">
+                    <div 
+                      style={{ width: `${c.uploaded ? 100 : 2}%` }} 
+                      className="h-3 rounded-full bg-gradient-to-r from-amber-400 via-yellow-500 to-amber-600 transition-all duration-500 shadow-lg"
+                    />
                   </div>
                 </div>
               ))}
             </div>
 
-            <div className="flex gap-2 mt-4">
+            <div className="flex gap-4">
               <button
                 onClick={() => { setIsUploadModalOpen(false); setSelectedFile(null); setChunksInfo(null); }}
-                className="flex-1 border rounded py-2"
+                className="flex-1 border-2 border-teal-600 hover:bg-teal-700/50 text-teal-100 rounded-2xl py-4 font-bold text-lg transition-all hover:scale-105 active:scale-95"
               >
                 Cancel
               </button>
               <button
                 onClick={handleChunkedUpload}
                 disabled={isUploading}
-                className="flex-1 bg-blue-500 text-white rounded py-2"
+                className="flex-1 bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 hover:from-amber-400 hover:via-yellow-400 hover:to-amber-500 disabled:from-teal-700 disabled:to-teal-800 text-white rounded-2xl py-4 font-bold text-lg shadow-xl transition-all disabled:cursor-not-allowed hover:scale-105 active:scale-95 border border-amber-400/30"
               >
-                {isUploading ? "Uploading..." : `Upload (${chunksInfo.total} chunks)`}
+                {isUploading ? "⏳ Uploading..." : `🚀 Upload ${chunksInfo.total} chunks`}
               </button>
             </div>
           </div>
